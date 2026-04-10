@@ -1,0 +1,332 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type Postgres struct {
+	Type  string
+	Name  string
+	Audit bool
+}
+
+type Valkey struct {
+	Name string
+}
+
+type OpenSearch struct {
+	Name string
+}
+
+// Workload represents a single Nais app workload.
+type Workload struct { // TODO: Dette er en applications, så ingen støtte for naisjobs
+	team Team
+
+	Name      string
+	Env       string
+	Ingresses []string
+	Postgres  []Postgres
+	Valkey []Valkey
+	OpenSearch []OpenSearch
+}
+
+func (w Workload) Team() string {
+	return w.team.Slug
+}
+
+func (w Workload) IngressesAsString() string {
+	return strings.Join(w.Ingresses, ", ")
+}
+
+type Team struct {
+	Slug         string
+	Purpose      string
+	SlackChannel string
+	Members      int
+	Applications []Workload
+}
+
+const teamsQuery = `
+query Teams($after: Cursor) {
+  teams(filter: { hasWorkloads: true }, after: $after) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      slug
+      purpose
+      slackChannel
+      members {
+        pageInfo {
+          totalCount
+        }
+      }
+      applications(first: 500) {
+        nodes {
+          name
+          ingresses {
+            url
+          }
+          teamEnvironment {
+            environment {
+              name
+            }
+          }
+          postgresInstances {
+            nodes {
+              name
+              audit {
+                enabled
+              }
+            }
+          }
+          sqlInstances {
+            nodes {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`
+
+const theGTeamQuery = `
+query Team {
+  team(slug: "the-g-team") {
+    slug
+    purpose
+    slackChannel
+    members {
+      pageInfo {
+        totalCount
+      }
+    }
+    applications {
+      nodes {
+        name
+        ingresses {
+          url
+        }
+        teamEnvironment {
+          environment {
+            name
+          }
+        }
+        postgresInstances {
+          nodes {
+            name
+            audit {
+              enabled
+            }
+          }
+        }
+        sqlInstances {
+          nodes {
+            name
+          }
+        }
+      }
+    }
+  }
+}
+`
+
+type gqlRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+type teamsResponse struct {
+	Data struct {
+		// midlertidig
+		Team struct {
+			Slug         string `json:"slug"`
+			Purpose      string `json:"purpose"`
+			SlackChannel string `json:"slackChannel"`
+			Members      struct {
+				PageInfo struct {
+					Count int `json:"totalCount"`
+				} `json:"pageInfo"`
+			} `json:"members"`
+			Applications struct {
+				Nodes []struct {
+					Name      string `json:"name"`
+					Ingresses []struct {
+						URL string `json:"url"`
+					} `json:"ingresses"`
+					TeamEnvironment struct {
+						Environment struct {
+							Name string `json:"name"`
+						} `json:"environment"`
+					} `json:"teamEnvironment"`
+					PostgresInstances struct {
+						Nodes []struct {
+							Name  string `json:"name"`
+							Audit struct {
+								Enabled bool `json:"enabled"`
+							} `json:"audit"`
+						} `json:"nodes"`
+					} `json:"postgresInstances"`
+					SQLInstances struct {
+						Nodes []struct {
+							Name string `json:"name"`
+						} `json:"nodes"`
+					} `json:"sqlInstances"`
+				} `json:"nodes"`
+			} `json:"applications"`
+		} `json:"team"`
+		// midlertidig
+		Teams struct {
+			PageInfo struct {
+				HasNextPage bool   `json:"hasNextPage"`
+				EndCursor   string `json:"endCursor"`
+			} `json:"pageInfo"`
+			Nodes []struct {
+				Slug         string `json:"slug"`
+				Purpose      string `json:"purpose"`
+				SlackChannel string `json:"slackChannel"`
+				Members      struct {
+					PageInfo struct {
+						Count int `json:"totalCount"`
+					} `json:"pageInfo"`
+				} `json:"members"`
+				Applications struct {
+					Nodes []struct {
+						Name      string `json:"name"`
+						Ingresses []struct {
+							URL string `json:"url"`
+						} `json:"ingresses"`
+						TeamEnvironment struct {
+							Environment struct {
+								Name string `json:"name"`
+							} `json:"environment"`
+						} `json:"teamEnvironment"`
+						PostgresInstances struct {
+							Nodes []struct {
+								Name  string `json:"name"`
+								Audit struct {
+									Enabled bool `json:"enabled"`
+								} `json:"audit"`
+							} `json:"nodes"`
+						} `json:"postgresInstances"`
+						SQLInstances struct {
+							Nodes []struct {
+								Name string `json:"name"`
+							} `json:"nodes"`
+						} `json:"sqlInstances"`
+					} `json:"nodes"`
+				} `json:"applications"`
+			} `json:"nodes"`
+		} `json:"teams"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+func fetchTeams(consoleURL string) (map[string]Team, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	teams := make(map[string]Team)
+	after := ""
+
+	for {
+		body, err := json.Marshal(gqlRequest{
+			Query:     theGTeamQuery, // teamsQuery,
+			Variables: map[string]any{"after": after},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+
+		req, err := http.NewRequest(http.MethodPost, consoleURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("execute request: %w", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, respBody)
+		}
+
+		var result teamsResponse
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
+		if len(result.Errors) > 0 {
+			msgs := make([]string, len(result.Errors))
+			for i, e := range result.Errors {
+				msgs[i] = e.Message
+			}
+			return nil, fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
+		}
+
+		// for _, teamNode := range result.Data.Teams.Nodes {
+		teamNode := result.Data.Team
+		team := teams[teamNode.Slug]
+		if team.Slug == "" {
+			team = Team{
+				Slug:         teamNode.Slug,
+				Purpose:      teamNode.Purpose,
+				SlackChannel: teamNode.SlackChannel,
+				Members:      teamNode.Members.PageInfo.Count,
+				Applications: []Workload{},
+			}
+		}
+
+		for _, wlNode := range teamNode.Applications.Nodes {
+			postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.PostgresInstances.Nodes))
+			for _, inst := range wlNode.SQLInstances.Nodes {
+				postgres = append(postgres, Postgres{
+					Type:  "CloudSQL",
+					Name:  inst.Name,
+					Audit: false,
+				})
+			}
+			for _, inst := range wlNode.PostgresInstances.Nodes {
+				postgres = append(postgres, Postgres{
+					Type:  "Postgres",
+					Name:  inst.Name,
+					Audit: inst.Audit.Enabled,
+				})
+			}
+			ingresses := []string{}
+			for _, ingress := range wlNode.Ingresses {
+				ingresses = append(ingresses, ingress.URL)
+			}
+			team.Applications = append(team.Applications, Workload{
+				Name:      wlNode.Name,
+				Env:       wlNode.TeamEnvironment.Environment.Name,
+				Ingresses: ingresses,
+				Postgres:  postgres,
+			})
+		}
+		teams[team.Slug] = team
+		// }
+
+		if !result.Data.Teams.PageInfo.HasNextPage {
+			break
+		}
+		after = result.Data.Teams.PageInfo.EndCursor
+	}
+
+	return teams, nil
+}

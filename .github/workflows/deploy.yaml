@@ -1,0 +1,31 @@
+name: Deploy to prod-gcp
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    name: Build, push, and deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # ratchet:actions/checkout@v4
+
+      - name: Build and push Docker image
+        uses: nais/docker-build-push@ae613eff6f44f0323476eda1c3994a7c518761c3 # ratchet:nais/docker-build-push@v0
+        id: docker-build-push
+        with:
+          team: ardoc
+          identity_provider: ${{ secrets.NAIS_WORKLOAD_IDENTITY_PROVIDER }}
+          project_id: ${{ vars.NAIS_MANAGEMENT_PROJECT_ID }}
+
+      - name: Deploy to prod-gcp
+        uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
+        env:
+          CLUSTER: prod-gcp
+          RESOURCE: .nais/naisjob.yaml
+          WORKLOAD_IMAGE: ${{ steps.docker-build-push.outputs.image }}

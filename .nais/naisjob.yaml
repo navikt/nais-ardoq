@@ -1,0 +1,25 @@
+apiVersion: nais.io/v1
+kind: Naisjob
+metadata:
+  name: ardoc
+  namespace: ardoc
+  labels:
+    team: ardoc
+spec:
+  schedule: "0 * * * *"
+  accessPolicy:
+    outbound:
+      external:
+        - host: console.nav.cloud.nais.io
+          ports:
+            - 443
+        - host: navit.ardoq.com
+          ports:
+            - 443
+  env:
+    - name: NAIS_CONSOLE_URL
+      value: "https://console.nav.cloud.nais.io/graphql"
+    - name: ARDOQ_HOST
+      value: "https://navit.ardoq.com"
+  envFrom:
+    - secret: ardoc
