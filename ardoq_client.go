@@ -7,59 +7,32 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 const (
-	naisTeamWorkspaceID  = "d64786fe39f101cde6329269" // Naisteam, og team
-	naisTeamTypeID       = "p1775462930727"
-	komponentWorkspaceID = "e08db3ca67512f4f66b4daeb" // Plattform, og komponent
-	komponentTypeID      = "p1763722903209"
-	databaseWorkspaceID  = "efcaf4ca19eef70f883e686f" // Miljø, instans, databaseprodukt, og database
-	databaseTypeID       = "p1764106328620"
-
-	databaseTypeBruksDB = "BruksDB"
+	importConfigIDComponents = "0ed5625c6f6ce16b9b9417ba"
+	importConfigIDReferences = "ebdf8cf9a7bffd5fbce24747"
+	importEndpoint           = "/api/integrations/tabular/import"
 )
 
-// CustomFields holds the workspace-specific custom fields on a component.
-type CustomFields struct {
-	NaisTeam           string `json:"nais_team"`
-	SistInnlestFraNais string `json:"sist_innlest_fra_nais,omitempty"`
-	Namespace          string `json:"namespace,omitempty"`
-	KomponentURL       string `json:"komponent_url,omitempty"`
-	NaisConsoleLink    string `json:"nais_console_link,omitempty"`
-	Slack              string `json:"slack,omitempty"`
-	Medlemmer          int    `json:"medlemmer,omitempty"`
-	AuditEnabled       bool   `json:"auditlogg_pa_db_er_etablert,omitempty"`
-	DatabaseType       string `json:"database_type,omitempty"`
+// ImportConfig identifies the pre-defined Ardoq import configuration to use.
+type ImportConfig struct {
+	ID string `json:"id"`
 }
 
-// BatchRequest is the top-level payload for POST /api/v2/batch.
-type BatchRequest struct {
-	Components BatchComponents `json:"components"`
+// ImportTable is a single worksheet in an import payload.
+type ImportTable struct {
+	ID   string              `json:"id"`
+	Rows []map[string]string `json:"rows"`
 }
 
-// BatchComponents holds the upsert list for components in a batch request.
-type BatchComponents struct {
-	Upsert []BatchUpsert `json:"upsert,omitempty"`
-}
-
-// BatchUpsert is a single upsert operation within a batch request.
-type BatchUpsert struct {
-	BatchID  string        `json:"batchId,omitempty"`
-	UniqueBy []string      `json:"uniqueBy"`
-	Body     ComponentBody `json:"body"`
-}
-
-// ComponentBody is the component payload sent in a batch upsert.
-type ComponentBody struct {
-	Name          string       `json:"name"`
-	Description   string       `json:"description,omitempty"`
-	RootWorkspace string       `json:"rootWorkspace"`
-	TypeID        string       `json:"typeId"`
-	Parent        string       `json:"parent,omitempty"`
-	CustomFields  CustomFields `json:"customFields"`
+// ImportPayload is the top-level request body for POST /api/integrations/tabular/import.
+type ImportPayload struct {
+	Config ImportConfig  `json:"config"`
+	Tables []ImportTable `json:"tables"`
 }
 
 type ardoqClient struct {
@@ -109,193 +82,280 @@ func (c *ardoqClient) do(method, url string, body any) ([]byte, error) {
 	return respBody, nil
 }
 
-// batchSync sends upsert operations to the Batch API in chunks of 200.
-func (c *ardoqClient) batchSync(upserts []BatchUpsert) error {
-	slog.Info("should upsert", "len", len(upserts))
-	payload, err := json.Marshal(upserts)
-	if err != nil {
-		return err
+// dryRunToArdoq builds the Import API payloads and writes them to disk as
+// ardoq-components.json and ardoq-references.json without calling Ardoq.
+func dryRunToArdoq(teams map[string]Team) error {
+	table1 := buildTeamsTable(teams)
+	table2, table3 := buildWorkloadTables(teams)
+	table4, table5 := buildReferenceTables(teams)
+
+	componentPayload := ImportPayload{
+		Config: ImportConfig{ID: importConfigIDComponents},
+		Tables: []ImportTable{table1, table2, table3},
+	}
+	referencePayload := ImportPayload{
+		Config: ImportConfig{ID: importConfigIDReferences},
+		Tables: []ImportTable{table4, table5},
 	}
 
-	fmt.Println(string(payload))
+	if err := writeJSON("ardoq-components.json", componentPayload); err != nil {
+		return err
+	}
+	return writeJSON("ardoq-references.json", referencePayload)
+}
 
-	const chunkSize = 200
-	for i := 0; i < len(upserts); i += chunkSize {
-		end := min(i+chunkSize, len(upserts))
-		chunk := upserts[i:end]
-
-		req := BatchRequest{Components: BatchComponents{Upsert: chunk}}
-		url := c.host + "/api/v2/batch"
-		if _, err := c.do(http.MethodPost, url, req); err != nil {
-			return fmt.Errorf("batch sync (offset %d): %w", i, err)
-		}
-		slog.Info("batch synced", "count", len(chunk))
+func writeJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
 
-// Plattform
-// curl -H "Authorization: Bearer adq_" 'https://navit.ardoq.com/api/v2/components?typeId=p1765520821470'
-func envToKomponentParent(env string) string {
-	switch env {
-	case "prod-gcp":
-		return "eab26b68b4615fc1e4f4ab50"
-		return "7746721acd82718fa558401b" // Nais GCP Prod
-	case "dev-gcp":
-		return "7746721acd82718fa558401b" // Nais GCP Dev
-	case "prod-fss":
-		return "7c6f23f3ae50f23af07f8008" // Nais FSS Prod
-	case "dev-fss":
-		return "d02abec8647e68cbe1b1f69e" // Nais FSS Dev
-	default:
-		return ""
-	}
-}
-
-func envToPostgresParent(env string) string {
-	switch env {
-	case "prod-gcp":
-		return "0e8c98f1aa2e2a4c49c9cb3a" // Postgres DB GCP Prod
-	case "dev-gcp":
-		return "231f2e0c2a97e281532842fb" // Postgres DB GCP Dev
-	default:
-		return ""
-	}
-}
-
-// syncToArdoq upserts all workload components derived from Nais teams into Ardoq.
+// syncToArdoq sends all Nais team data to Ardoq via the Import API in two steps:
+// Step 1 — components (teams, app instances, database instances)
+// Step 2 — references (team→app, app→database)
 func syncToArdoq(teams map[string]Team, host, token string) error {
 	c := newArdoqClient(host, token)
 
-	var upserts []BatchUpsert
-	for slug, team := range teams {
-		upserts = append(upserts, BatchUpsert{
-			BatchID:  slug,
-			UniqueBy: []string{"name", "rootWorkspace"},
-			Body: ComponentBody{
-				Name:          slug,
-				Description:   team.Purpose,
-				RootWorkspace: naisTeamWorkspaceID,
-				TypeID:        naisTeamTypeID,
-				CustomFields: CustomFields{
-					NaisTeam:        slug,
-					NaisConsoleLink: "https://console.nav.cloud.nais.io/team/" + slug,
-					Slack:           team.SlackChannel,
-					Medlemmer:       team.Members,
-				},
-			},
-		})
+	table1 := buildTeamsTable(teams)
+	table2, table3 := buildWorkloadTables(teams)
+	table4, table5 := buildReferenceTables(teams)
 
+	slog.Info("importing components", "teams", len(table1.Rows), "apps", len(table2.Rows), "databases", len(table3.Rows))
+	componentPayload := ImportPayload{
+		Config: ImportConfig{ID: importConfigIDComponents},
+		Tables: []ImportTable{table1, table2, table3},
+	}
+	url := c.host + importEndpoint
+	if _, err := c.do(http.MethodPost, url, componentPayload); err != nil {
+		return fmt.Errorf("import components: %w", err)
+	}
+	slog.Info("components imported")
+
+	slog.Info("importing references", "team_app_refs", len(table4.Rows), "app_db_refs", len(table5.Rows))
+	referencePayload := ImportPayload{
+		Config: ImportConfig{ID: importConfigIDReferences},
+		Tables: []ImportTable{table4, table5},
+	}
+	if _, err := c.do(http.MethodPost, url, referencePayload); err != nil {
+		return fmt.Errorf("import references: %w", err)
+	}
+	slog.Info("references imported")
+
+	return nil
+}
+
+// buildTeamsTable builds table 1: one row per team.
+func buildTeamsTable(teams map[string]Team) ImportTable {
+	rows := make([]map[string]string, 0, len(teams))
+	for slug, team := range teams {
+		rows = append(rows, map[string]string{
+			"navn":        slug,
+			"beskrivelse": team.Purpose,
+			"kanal":       team.SlackChannel,
+		})
+	}
+	return ImportTable{ID: "1", Rows: rows}
+}
+
+// buildWorkloadTables builds table 2 (app instances) and table 3 (database instances).
+func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
+	var appRows []map[string]string
+	var dbRows []map[string]string
+
+	for _, team := range teams {
 		for _, wl := range team.Applications {
-			upserts = append(upserts, app(wl))
-			upserts = append(upserts, postgres(wl)...)
-			upserts = append(upserts, valkey(wl)...)
-			upserts = append(upserts, openSearch(wl)...)
+			env := naisEnvToArdoq(wl.Env)
+			if env == "" {
+				slog.Warn("unknown environment, skipping workload", "env", wl.Env, "app", wl.Name)
+				continue
+			}
+
+			appRows = append(appRows, map[string]string{
+				"miljø":     envSuffix(env),
+				"navn":      wl.Name,
+				"ingresser": wl.IngressesAsString(),
+			})
+
+			for _, db := range wl.Postgres {
+				dbEnv := naisEnvToArdoqPostgres(wl.Env)
+				if dbEnv == "" {
+					slog.Warn("unsupported environment for Postgres, skipping", "env", wl.Env, "db", db.Name)
+					continue
+				}
+				dbRows = append(dbRows, map[string]string{
+					"miljø":     envSuffix(dbEnv),
+					"navn":      db.Name,
+					"auditlogg": boolToString(db.Audit),
+				})
+			}
+
+			for _, v := range wl.Valkey {
+				vEnv := naisEnvToArdoqValkey(wl.Env)
+				if vEnv == "" {
+					slog.Warn("unsupported environment for Valkey, skipping", "env", wl.Env, "valkey", v.Name)
+					continue
+				}
+				dbRows = append(dbRows, map[string]string{
+					"miljø": envSuffix(vEnv),
+					"navn":  v.Name,
+				})
+			}
+
+			o := wl.OpenSearch
+			if o != nil {
+				oEnv := naisEnvToArdoqOpenSearch(wl.Env)
+				if oEnv == "" {
+					slog.Warn("unsupported environment for OpenSearch, skipping", "env", wl.Env, "opensearch", o.Name)
+					continue
+				}
+				dbRows = append(dbRows, map[string]string{
+					"miljø": envSuffix(oEnv),
+					"navn":  o.Name,
+				})
+			}
 		}
 	}
 
-	sistInnlestFraNais := time.Now().UTC().Format("2006-01-02")
-	for _, upsert := range upserts {
-		upsert.Body.CustomFields.SistInnlestFraNais = sistInnlestFraNais
-	}
-
-	slog.Info("upserting workload components", "count", len(upserts))
-	return c.batchSync(upserts)
+	return ImportTable{ID: "2", Rows: appRows}, ImportTable{ID: "3", Rows: dbRows}
 }
 
-func app(wl Workload) BatchUpsert {
-	parent := envToKomponentParent(wl.Env)
-	if parent == "" {
-		slog.Info("missing environment", "env", wl.Env)
-		return BatchUpsert{}
+// buildReferenceTables builds table 4 (team→app refs) and table 5 (app→database refs).
+// References use only the prefix before '::' in the environment name.
+func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable) {
+	var teamAppRows []map[string]string
+	var appDbRows []map[string]string
+
+	for _, team := range teams {
+		for _, wl := range team.Applications {
+			env := naisEnvToArdoq(wl.Env)
+			if env == "" {
+				continue
+			}
+
+			teamAppRows = append(teamAppRows, map[string]string{
+				"team":      team.Slug,
+				"app_miljø": env,
+				"app_navn":  wl.Name,
+			})
+
+			for _, db := range wl.Postgres {
+				dbEnv := naisEnvToArdoqPostgres(wl.Env)
+				if dbEnv == "" {
+					continue
+				}
+				appDbRows = append(appDbRows, map[string]string{
+					"app_miljø":      env,
+					"app":            wl.Name,
+					"database_miljø": dbEnv,
+					"database":       db.Name,
+				})
+			}
+
+			for _, v := range wl.Valkey {
+				vEnv := naisEnvToArdoqValkey(wl.Env)
+				if vEnv == "" {
+					continue
+				}
+				appDbRows = append(appDbRows, map[string]string{
+					"app_miljø":      env,
+					"app":            wl.Name,
+					"database_miljø": vEnv,
+					"database":       v.Name,
+				})
+			}
+
+			o := wl.OpenSearch
+			if o != nil {
+				oEnv := naisEnvToArdoqOpenSearch(wl.Env)
+				if oEnv == "" {
+					continue
+				}
+				appDbRows = append(appDbRows, map[string]string{
+					"app_miljø":      env,
+					"app":            wl.Name,
+					"database_miljø": oEnv,
+					"database":       o.Name,
+				})
+			}
+		}
 	}
 
-	return BatchUpsert{
-		BatchID:  wl.Team() + "/" + wl.Name,
-		UniqueBy: []string{"name", "rootWorkspace"},
-		Body: ComponentBody{
-			Name:          wl.Name,
-			RootWorkspace: komponentWorkspaceID,
-			TypeID:        komponentTypeID,
-			Parent:        parent,
-			CustomFields: CustomFields{
-				NaisTeam:     wl.Team(),
-				KomponentURL: wl.IngressesAsString(),
-			},
-		},
+	return ImportTable{ID: "4", Rows: teamAppRows}, ImportTable{ID: "5", Rows: appDbRows}
+}
+
+func boolToString(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+// envSuffix returns the part of an Ardoq environment name after '::'.
+// For example, "Nais GCP::Nais GCP Prod" → "Nais GCP Prod".
+func envSuffix(env string) string {
+	if _, after, ok := strings.Cut(env, "::"); ok {
+		return after
+	}
+	return env
+}
+
+// naisEnvToArdoq maps a Nais environment name to its Ardoq display name for apps.
+// Returns an empty string for unknown environments.
+func naisEnvToArdoq(env string) string {
+	switch env {
+	case "prod-gcp":
+		return "Nais GCP::Nais GCP Prod"
+	case "dev-gcp":
+		return "Nais GCP::Nais GCP Dev"
+	case "prod-fss":
+		return "Nais FSS::Nais FSS Prod"
+	case "dev-fss":
+		return "Nais FSS::Nais FSS Dev"
+	default:
+		return ""
 	}
 }
 
-func postgres(wl Workload) []BatchUpsert {
-	upserts := []BatchUpsert{}
-
-	postgresParent := envToPostgresParent(wl.Env)
-	if postgresParent == "" {
-		slog.Info("missing Postgres parent", "env", wl.Env)
-		return upserts
+// naisEnvToArdoqPostgres maps a Nais environment name to its Ardoq display name for Postgres databases.
+// Returns an empty string for unknown or unsupported environments.
+func naisEnvToArdoqPostgres(env string) string {
+	switch env {
+	case "prod-gcp":
+		return "Postgres DB GCP::Postgres DB GCP Prod"
+	case "dev-gcp":
+		return "Postgres DB GCP::Postgres DB GCP Dev"
+	default:
+		return ""
 	}
-
-	for _, database := range wl.Postgres {
-		upserts = append(upserts, BatchUpsert{
-			BatchID:  wl.Team() + "/postgres/" + wl.Name + "/" + database.Name,
-			UniqueBy: []string{"name", "rootWorkspace"},
-			Body: ComponentBody{
-				Name:          database.Name,
-				RootWorkspace: databaseWorkspaceID,
-				TypeID:        databaseTypeID,
-				Parent:        postgresParent,
-				CustomFields: CustomFields{
-					NaisTeam:     wl.Team(),
-					AuditEnabled: database.Audit,
-					DatabaseType: databaseTypeBruksDB,
-				},
-			},
-		})
-	}
-
-	return upserts
 }
 
-func valkey(wl Workload) []BatchUpsert {
-	upserts := []BatchUpsert{}
-	for _, valkey := range wl.Valkey {
-		upserts = append(upserts, BatchUpsert{
-			BatchID:  wl.Team() + "/valkey/" + wl.Name + "/" + valkey.Name,
-			UniqueBy: []string{"name", "rootWorkspace"},
-			Body: ComponentBody{
-				Name: valkey.Name,
-				// RootWorkspace: databaseWorkspaceID,
-				// TypeID:        databaseTypeID,
-				// Parent:        postgresDBGCPParentID,
-				CustomFields: CustomFields{
-					NaisTeam: wl.Team(),
-					// DatabaseType: databaseTypeBruksDB,
-				},
-			},
-		})
+// naisEnvToArdoqValkey maps a Nais environment name to its Ardoq display name for Valkey instances.
+// Returns an empty string for unknown or unsupported environments.
+func naisEnvToArdoqValkey(env string) string {
+	switch env {
+	case "prod-gcp":
+		return "Valkey GCP::Valkey GCP Prod"
+	case "dev-gcp":
+		return "Valkey GCP::Valkey GCP Dev"
+	default:
+		return ""
 	}
-
-	return upserts
 }
 
-func openSearch(wl Workload) []BatchUpsert {
-	upserts := []BatchUpsert{}
-	for _, openSearch := range wl.OpenSearch {
-		upserts = append(upserts, BatchUpsert{
-			BatchID:  wl.Team() + "/openSearch/" + wl.Name + "/" + openSearch.Name,
-			UniqueBy: []string{"name", "rootWorkspace"},
-			Body: ComponentBody{
-				Name: openSearch.Name,
-				// RootWorkspace: databaseWorkspaceID,
-				// TypeID:        databaseTypeID,
-				// Parent:        postgresDBGCPParentID,
-				CustomFields: CustomFields{
-					NaisTeam: wl.Team(),
-					// DatabaseType: databaseTypeBruksDB,
-				},
-			},
-		})
+// naisEnvToArdoqOpenSearch maps a Nais environment name to its Ardoq display name for OpenSearch instances.
+// Returns an empty string for unknown or unsupported environments.
+func naisEnvToArdoqOpenSearch(env string) string {
+	switch env {
+	case "prod-gcp":
+		return "OpenSearch GCP::OpenSearch GCP Prod"
+	case "dev-gcp":
+		return "OpenSearch GCP::OpenSearch GCP Dev"
+	default:
+		return ""
 	}
-
-	return upserts
 }

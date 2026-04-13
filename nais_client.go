@@ -11,7 +11,6 @@ import (
 )
 
 type Postgres struct {
-	Type  string
 	Name  string
 	Audit bool
 }
@@ -26,18 +25,12 @@ type OpenSearch struct {
 
 // Workload represents a single Nais app workload.
 type Workload struct { // TODO: Dette er en applications, så ingen støtte for naisjobs
-	team Team
-
-	Name      string
-	Env       string
-	Ingresses []string
-	Postgres  []Postgres
-	Valkey []Valkey
-	OpenSearch []OpenSearch
-}
-
-func (w Workload) Team() string {
-	return w.team.Slug
+	Name       string
+	Env        string
+	Ingresses  []string
+	Postgres   []Postgres
+	Valkey     []Valkey
+	OpenSearch *OpenSearch
 }
 
 func (w Workload) IngressesAsString() string {
@@ -92,6 +85,14 @@ query Teams($after: Cursor) {
               name
             }
           }
+          valkey {
+            nodes {
+              name
+            }
+          }
+          openSearch {
+            name
+          }
         }
       }
     }
@@ -133,6 +134,14 @@ query Team {
           nodes {
             name
           }
+        }
+        valkeys {
+          nodes {
+            name
+          }
+        }
+        openSearch {
+          name
         }
       }
     }
@@ -181,6 +190,14 @@ type teamsResponse struct {
 							Name string `json:"name"`
 						} `json:"nodes"`
 					} `json:"sqlInstances"`
+					ValkeyInstances struct {
+						Nodes []struct {
+							Name string `json:"name"`
+						} `json:"nodes"`
+					} `json:"valkeys"`
+					OpenSearchInstances struct {
+						Name string `json:"name"`
+					} `json:"openSearch"`
 				} `json:"nodes"`
 			} `json:"applications"`
 		} `json:"team"`
@@ -223,6 +240,14 @@ type teamsResponse struct {
 								Name string `json:"name"`
 							} `json:"nodes"`
 						} `json:"sqlInstances"`
+						ValkeyInstances struct {
+							Nodes []struct {
+								Name string `json:"name"`
+							} `json:"nodes"`
+						} `json:"valkeys"`
+						OpenSearchInstances struct {
+							Name string `json:"name"`
+						} `json:"openSearch"`
 					} `json:"nodes"`
 				} `json:"applications"`
 			} `json:"nodes"`
@@ -296,29 +321,45 @@ func fetchTeams(consoleURL string) (map[string]Team, error) {
 			postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.PostgresInstances.Nodes))
 			for _, inst := range wlNode.SQLInstances.Nodes {
 				postgres = append(postgres, Postgres{
-					Type:  "CloudSQL",
 					Name:  inst.Name,
 					Audit: false,
 				})
 			}
+
 			for _, inst := range wlNode.PostgresInstances.Nodes {
 				postgres = append(postgres, Postgres{
-					Type:  "Postgres",
 					Name:  inst.Name,
 					Audit: inst.Audit.Enabled,
 				})
 			}
+
+			valkey := make([]Valkey, 0, len(wlNode.ValkeyInstances.Nodes))
+			for _, inst := range wlNode.ValkeyInstances.Nodes {
+				valkey = append(valkey, Valkey{Name: inst.Name})
+			}
+
+			var openSearch *OpenSearch
+			if wlNode.OpenSearchInstances.Name != "" {
+				openSearch = &OpenSearch{
+					Name: wlNode.OpenSearchInstances.Name,
+				}
+			}
+
 			ingresses := []string{}
 			for _, ingress := range wlNode.Ingresses {
 				ingresses = append(ingresses, ingress.URL)
 			}
+
 			team.Applications = append(team.Applications, Workload{
-				Name:      wlNode.Name,
-				Env:       wlNode.TeamEnvironment.Environment.Name,
-				Ingresses: ingresses,
-				Postgres:  postgres,
+				Name:       wlNode.Name,
+				Env:        wlNode.TeamEnvironment.Environment.Name,
+				Ingresses:  ingresses,
+				Postgres:   postgres,
+				Valkey:     valkey,
+				OpenSearch: openSearch,
 			})
 		}
+
 		teams[team.Slug] = team
 		// }
 

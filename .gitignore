@@ -3,6 +3,8 @@
 #
 # Binaries for programs and plugins
 ardoc
+ardoq-components.json
+ardoq-references.json
 *.exe
 *.exe~
 *.dll
