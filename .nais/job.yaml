@@ -10,10 +10,10 @@ spec:
       external:
         - host: console.nav.cloud.nais.io
           ports:
-            - 443
+            - port: 443
         - host: navit.ardoq.com
           ports:
-            - 443
+            - port: 443
   env:
     - name: NAIS_CONSOLE_URL
       value: "https://console.nav.cloud.nais.io/graphql"
