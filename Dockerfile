@@ -6,10 +6,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -o ardoc .
+RUN CGO_ENABLED=0 go build -o ardoq .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=builder /app/ardoc /ardoc
+COPY --from=builder /app/ardoq /ardoq
 
-CMD ["/ardoc"]
+CMD ["/ardoq"]

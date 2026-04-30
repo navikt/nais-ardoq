@@ -1,8 +1,8 @@
 apiVersion: nais.io/v1
 kind: Naisjob
 metadata:
-  name: ardoc
-  namespace: ardoc
+  name: ardoq
+  namespace: ardoq
 spec:
   schedule: "0 * * * *"
   accessPolicy:
@@ -20,4 +20,4 @@ spec:
     - name: ARDOQ_HOST
       value: "https://navit.ardoq.com"
   envFrom:
-    - secret: ardoc
+    - secret: ardoq

@@ -1,4 +1,4 @@
-# Nais Ardoc sync — Nais Console → Ardoq
+# Nais Ardoq sync — Nais Console → Ardoq
 
 Fetches team and workload data from the [Nais Console](https://console.nav.cloud.nais.io/) GraphQL API and syncs it into [Ardoq](https://navit.ardoq.com/).
 
@@ -13,7 +13,7 @@ mise install
 Build the binary:
 
 ```bash
-go build -o ardoc .
+go build -o ardoq .
 ```
 
 ## Configuration
@@ -41,7 +41,7 @@ Run the sync:
 
 ```bash
 export ARDOQ_API_TOKEN="your-token-here"
-./ardoc
+./ardoq
 ```
 
 ## Deployment

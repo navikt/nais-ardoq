@@ -1,4 +1,4 @@
-module github.com/navikt/ardoc
+module github.com/navikt/nais-ardoq
 
 go 1.26
 
