@@ -22,23 +22,8 @@ func main() {
 	}
 	slog.Info("fetched teams", "count", len(teams))
 
-	if *dryRun {
-		slog.Info("dry-run mode — writing payloads to disk")
-		if err := dryRunToArdoq(teams); err != nil {
-			slog.Error("dry-run failed", "error", err)
-			os.Exit(1)
-		}
-		slog.Info("dry-run complete", "files", []string{"ardoq-components.json", "ardoq-references.json"})
-		return
-	}
-
-	if ardoqToken == "" {
-		slog.Warn("ARDOQ_API_TOKEN not set — skipping Ardoq sync")
-		return
-	}
-
 	slog.Info("syncing to Ardoq")
-	if err := syncToArdoq(teams, ardoqHost, ardoqToken); err != nil {
+	if err := toArdoq(teams, ardoqHost, ardoqToken, *dryRun); err != nil {
 		slog.Error("Ardoq sync failed", "error", err)
 		os.Exit(1)
 	}

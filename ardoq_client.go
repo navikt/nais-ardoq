@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	importConfigIDComponents = "0ed5625c6f6ce16b9b9417ba"
-	importConfigIDReferences = "ebdf8cf9a7bffd5fbce24747"
+	importConfigIDComponents = "26272cdbc938f7b83e7a189d"
+	importConfigIDReferences = "4296c56681dc7ec8067b134e"
 	importEndpoint           = "/api/integrations/tabular/import"
 )
 
@@ -82,12 +82,12 @@ func (c *ardoqClient) do(method, url string, body any) ([]byte, error) {
 	return respBody, nil
 }
 
-// dryRunToArdoq builds the Import API payloads and writes them to disk as
-// ardoq-components.json and ardoq-references.json without calling Ardoq.
-func dryRunToArdoq(teams map[string]Team) error {
+// toArdoq builds the Import API payloads and either writes them to disk (dry-run)
+// or sends them to Ardoq via the Import API.
+func toArdoq(teams map[string]Team, host, token string, dryRun bool) error {
 	table1 := buildTeamsTable(teams)
 	table2, table3 := buildWorkloadTables(teams)
-	table4, table5 := buildReferenceTables(teams)
+	table4, table5, table6, table7, table8 := buildReferenceTables(teams)
 
 	componentPayload := ImportPayload{
 		Config: ImportConfig{ID: importConfigIDComponents},
@@ -95,13 +95,37 @@ func dryRunToArdoq(teams map[string]Team) error {
 	}
 	referencePayload := ImportPayload{
 		Config: ImportConfig{ID: importConfigIDReferences},
-		Tables: []ImportTable{table4, table5},
+		Tables: []ImportTable{table4, table5, table6, table7, table8},
 	}
 
-	if err := writeJSON("ardoq-components.json", componentPayload); err != nil {
-		return err
+	if dryRun {
+		slog.Info("dry-run mode — writing payloads to disk")
+		if err := writeJSON("ardoq-components.json", componentPayload); err != nil {
+			return err
+		}
+		if err := writeJSON("ardoq-references.json", referencePayload); err != nil {
+			return err
+		}
+		slog.Info("dry-run complete", "files", []string{"ardoq-components.json", "ardoq-references.json"})
+		return nil
 	}
-	return writeJSON("ardoq-references.json", referencePayload)
+
+	c := newArdoqClient(host, token)
+	url := c.host + importEndpoint
+
+	slog.Info("importing components", "teams", len(table1.Rows), "apps", len(table2.Rows), "databases", len(table3.Rows))
+	if _, err := c.do(http.MethodPost, url, componentPayload); err != nil {
+		return fmt.Errorf("import components: %w", err)
+	}
+	slog.Info("components imported")
+
+	slog.Info("importing references", "team_app_refs", len(table4.Rows), "app_db_refs", len(table5.Rows))
+	if _, err := c.do(http.MethodPost, url, referencePayload); err != nil {
+		return fmt.Errorf("import references: %w", err)
+	}
+	slog.Info("references imported")
+
+	return nil
 }
 
 func writeJSON(path string, v any) error {
@@ -115,40 +139,6 @@ func writeJSON(path string, v any) error {
 	return nil
 }
 
-// syncToArdoq sends all Nais team data to Ardoq via the Import API in two steps:
-// Step 1 — components (teams, app instances, database instances)
-// Step 2 — references (team→app, app→database)
-func syncToArdoq(teams map[string]Team, host, token string) error {
-	c := newArdoqClient(host, token)
-
-	table1 := buildTeamsTable(teams)
-	table2, table3 := buildWorkloadTables(teams)
-	table4, table5 := buildReferenceTables(teams)
-
-	slog.Info("importing components", "teams", len(table1.Rows), "apps", len(table2.Rows), "databases", len(table3.Rows))
-	componentPayload := ImportPayload{
-		Config: ImportConfig{ID: importConfigIDComponents},
-		Tables: []ImportTable{table1, table2, table3},
-	}
-	url := c.host + importEndpoint
-	if _, err := c.do(http.MethodPost, url, componentPayload); err != nil {
-		return fmt.Errorf("import components: %w", err)
-	}
-	slog.Info("components imported")
-
-	slog.Info("importing references", "team_app_refs", len(table4.Rows), "app_db_refs", len(table5.Rows))
-	referencePayload := ImportPayload{
-		Config: ImportConfig{ID: importConfigIDReferences},
-		Tables: []ImportTable{table4, table5},
-	}
-	if _, err := c.do(http.MethodPost, url, referencePayload); err != nil {
-		return fmt.Errorf("import references: %w", err)
-	}
-	slog.Info("references imported")
-
-	return nil
-}
-
 // buildTeamsTable builds table 1: one row per team.
 func buildTeamsTable(teams map[string]Team) ImportTable {
 	rows := make([]map[string]string, 0, len(teams))
@@ -159,6 +149,7 @@ func buildTeamsTable(teams map[string]Team) ImportTable {
 			"kanal":       team.SlackChannel,
 		})
 	}
+
 	return ImportTable{ID: "1", Rows: rows}
 }
 
@@ -169,139 +160,159 @@ func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
 
 	for _, team := range teams {
 		for _, wl := range team.Applications {
-			env := naisEnvToArdoq(wl.Env)
+			env := naisEnvToCluster(wl.Env)
 			if env == "" {
 				slog.Warn("unknown environment, skipping workload", "env", wl.Env, "app", wl.Name)
 				continue
 			}
 
 			appRows = append(appRows, map[string]string{
-				"miljø":     envSuffix(env),
+				"app_key":   fmt.Sprintf("nais:%s:%s:%s", env, team.Slug, wl.Name),
 				"navn":      wl.Name,
 				"ingresser": wl.IngressesAsString(),
 			})
 
 			for _, db := range wl.Postgres {
-				dbEnv := naisEnvToArdoqPostgres(wl.Env)
-				if dbEnv == "" {
-					slog.Warn("unsupported environment for Postgres, skipping", "env", wl.Env, "db", db.Name)
-					continue
-				}
 				dbRows = append(dbRows, map[string]string{
-					"miljø":     envSuffix(dbEnv),
+					"db_key":    fmt.Sprintf("db:%s:%s:postgres:%s", env, team.Slug, db.Name),
 					"navn":      db.Name,
 					"auditlogg": boolToString(db.Audit),
 				})
 			}
 
 			for _, v := range wl.Valkey {
-				vEnv := naisEnvToArdoqValkey(wl.Env)
-				if vEnv == "" {
-					slog.Warn("unsupported environment for Valkey, skipping", "env", wl.Env, "valkey", v.Name)
-					continue
-				}
 				dbRows = append(dbRows, map[string]string{
-					"miljø": envSuffix(vEnv),
-					"navn":  v.Name,
+					"db_key": fmt.Sprintf("db:%s:%s:valkey:%s", env, team.Slug, v.Name),
+					"navn":   v.Name,
 				})
 			}
 
 			o := wl.OpenSearch
 			if o != nil {
-				oEnv := naisEnvToArdoqOpenSearch(wl.Env)
-				if oEnv == "" {
-					slog.Warn("unsupported environment for OpenSearch, skipping", "env", wl.Env, "opensearch", o.Name)
-					continue
-				}
 				dbRows = append(dbRows, map[string]string{
-					"miljø": envSuffix(oEnv),
-					"navn":  o.Name,
+					"db_key": fmt.Sprintf("db:%s:%s:opensearch:%s", env, team.Slug, o.Name),
+					"navn":   o.Name,
 				})
 			}
 		}
 	}
 
-	return ImportTable{ID: "2", Rows: appRows}, ImportTable{ID: "3", Rows: dbRows}
+	return ImportTable{ID: "2", Rows: appRows},
+		ImportTable{ID: "3", Rows: dbRows}
 }
 
-// buildReferenceTables builds table 4 (team→app refs) and table 5 (app→database refs).
-// References use only the prefix before '::' in the environment name.
-func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable) {
+// buildReferenceTables builds reference tables 4–8:
+// 4: team→app, 5: app→database, 6: app→environment, 7: database→environment, 8: database→technology
+func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, ImportTable, ImportTable, ImportTable) {
 	var teamAppRows []map[string]string
 	var appDbRows []map[string]string
+	var appEnvRows []map[string]string
+	var dbEnvRows []map[string]string
+	var dbTechRows []map[string]string
 
 	for _, team := range teams {
 		for _, wl := range team.Applications {
-			env := naisEnvToArdoq(wl.Env)
-			if env == "" {
+			if naisEnvToCluster(wl.Env) == "" {
 				continue
 			}
 
+			plattformInstans := naisEnvToArdoq(wl.Env)
+			if plattformInstans == "" {
+				continue
+			}
+
+			appKey := fmt.Sprintf("nais:%s:%s:%s", naisEnvToCluster(wl.Env), team.Slug, wl.Name)
+
 			teamAppRows = append(teamAppRows, map[string]string{
-				"team":      team.Slug,
-				"app_miljø": env,
-				"app_navn":  wl.Name,
+				"team":    team.Slug,
+				"app_key": appKey,
+			})
+
+			appEnvRows = append(appEnvRows, map[string]string{
+				"app_key":          appKey,
+				"plattforminstans": plattformInstans,
 			})
 
 			for _, db := range wl.Postgres {
-				dbEnv := naisEnvToArdoqPostgres(wl.Env)
-				if dbEnv == "" {
-					continue
-				}
+				dbKey := fmt.Sprintf("db:%s:%s:postgres:%s", naisEnvToCluster(wl.Env), team.Slug, db.Name)
 				appDbRows = append(appDbRows, map[string]string{
-					"app_miljø":      env,
-					"app":            wl.Name,
-					"database_miljø": dbEnv,
-					"database":       db.Name,
+					"app_key": appKey,
+					"db_key":  dbKey,
+				})
+				dbEnvRows = append(dbEnvRows, map[string]string{
+					"db_key":           dbKey,
+					"plattforminstans": plattformInstans,
+				})
+				dbTechRows = append(dbTechRows, map[string]string{
+					"db_key":            dbKey,
+					"databaseteknologi": "postgres",
 				})
 			}
 
 			for _, v := range wl.Valkey {
-				vEnv := naisEnvToArdoqValkey(wl.Env)
-				if vEnv == "" {
-					continue
-				}
+				dbKey := fmt.Sprintf("db:%s:%s:valkey:%s", naisEnvToCluster(wl.Env), team.Slug, v.Name)
 				appDbRows = append(appDbRows, map[string]string{
-					"app_miljø":      env,
-					"app":            wl.Name,
-					"database_miljø": vEnv,
-					"database":       v.Name,
+					"app_key": appKey,
+					"db_key":  dbKey,
+				})
+				dbEnvRows = append(dbEnvRows, map[string]string{
+					"db_key":           dbKey,
+					"plattforminstans": plattformInstans,
+				})
+				dbTechRows = append(dbTechRows, map[string]string{
+					"db_key":            dbKey,
+					"databaseteknologi": "valkey",
 				})
 			}
 
 			o := wl.OpenSearch
 			if o != nil {
-				oEnv := naisEnvToArdoqOpenSearch(wl.Env)
-				if oEnv == "" {
-					continue
-				}
+				dbKey := fmt.Sprintf("db:%s:%s:opensearch:%s", naisEnvToCluster(wl.Env), team.Slug, o.Name)
 				appDbRows = append(appDbRows, map[string]string{
-					"app_miljø":      env,
-					"app":            wl.Name,
-					"database_miljø": oEnv,
-					"database":       o.Name,
+					"app_key": appKey,
+					"db_key":  dbKey,
+				})
+				dbEnvRows = append(dbEnvRows, map[string]string{
+					"db_key":           dbKey,
+					"plattforminstans": plattformInstans,
+				})
+				dbTechRows = append(dbTechRows, map[string]string{
+					"db_key":            dbKey,
+					"databaseteknologi": "opensearch",
 				})
 			}
 		}
 	}
 
-	return ImportTable{ID: "4", Rows: teamAppRows}, ImportTable{ID: "5", Rows: appDbRows}
+	return ImportTable{ID: "4", Rows: teamAppRows},
+		ImportTable{ID: "5", Rows: appDbRows},
+		ImportTable{ID: "6", Rows: appEnvRows},
+		ImportTable{ID: "7", Rows: dbEnvRows},
+		ImportTable{ID: "8", Rows: dbTechRows}
 }
 
 func boolToString(b bool) string {
 	if b {
-		return "true"
+		return "ja"
 	}
-	return "false"
+	return "nei"
 }
 
-// envSuffix returns the part of an Ardoq environment name after '::'.
-// For example, "Nais GCP::Nais GCP Prod" → "Nais GCP Prod".
-func envSuffix(env string) string {
-	if _, after, ok := strings.Cut(env, "::"); ok {
-		return after
+// naisEnvToCluster maps a Nais environment name to its cluster identifier used in Ardoq keys.
+// Returns an empty string for unknown environments.
+func naisEnvToCluster(env string) string {
+	switch env {
+	case "prod-gcp":
+		return "nais-gcp-prod"
+	case "dev-gcp":
+		return "nais-gcp-dev"
+	case "prod-fss":
+		return "nais-fss-prod"
+	case "dev-fss":
+		return "nais-fss-dev"
+	default:
+		return ""
 	}
-	return env
 }
 
 // naisEnvToArdoq maps a Nais environment name to its Ardoq display name for apps.
@@ -309,52 +320,13 @@ func envSuffix(env string) string {
 func naisEnvToArdoq(env string) string {
 	switch env {
 	case "prod-gcp":
-		return "Nais GCP::Nais GCP Prod"
+		return "Nais GCP Prod"
 	case "dev-gcp":
-		return "Nais GCP::Nais GCP Dev"
+		return "Nais GCP Dev"
 	case "prod-fss":
-		return "Nais FSS::Nais FSS Prod"
+		return "Nais FSS Prod"
 	case "dev-fss":
-		return "Nais FSS::Nais FSS Dev"
-	default:
-		return ""
-	}
-}
-
-// naisEnvToArdoqPostgres maps a Nais environment name to its Ardoq display name for Postgres databases.
-// Returns an empty string for unknown or unsupported environments.
-func naisEnvToArdoqPostgres(env string) string {
-	switch env {
-	case "prod-gcp":
-		return "Postgres DB GCP::Postgres DB GCP Prod"
-	case "dev-gcp":
-		return "Postgres DB GCP::Postgres DB GCP Dev"
-	default:
-		return ""
-	}
-}
-
-// naisEnvToArdoqValkey maps a Nais environment name to its Ardoq display name for Valkey instances.
-// Returns an empty string for unknown or unsupported environments.
-func naisEnvToArdoqValkey(env string) string {
-	switch env {
-	case "prod-gcp":
-		return "Valkey GCP::Valkey GCP Prod"
-	case "dev-gcp":
-		return "Valkey GCP::Valkey GCP Dev"
-	default:
-		return ""
-	}
-}
-
-// naisEnvToArdoqOpenSearch maps a Nais environment name to its Ardoq display name for OpenSearch instances.
-// Returns an empty string for unknown or unsupported environments.
-func naisEnvToArdoqOpenSearch(env string) string {
-	switch env {
-	case "prod-gcp":
-		return "OpenSearch GCP::OpenSearch GCP Prod"
-	case "dev-gcp":
-		return "OpenSearch GCP::OpenSearch GCP Dev"
+		return "Nais FSS Dev"
 	default:
 		return ""
 	}
