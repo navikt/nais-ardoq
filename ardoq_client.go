@@ -93,6 +93,7 @@ func toArdoq(teams map[string]Team, host, token string, dryRun bool) error {
 		Config: ImportConfig{ID: importConfigIDComponents},
 		Tables: []ImportTable{table1, table2, table3},
 	}
+
 	referencePayload := ImportPayload{
 		Config: ImportConfig{ID: importConfigIDReferences},
 		Tables: []ImportTable{table4, table5, table6, table7, table8},
@@ -106,7 +107,7 @@ func toArdoq(teams map[string]Team, host, token string, dryRun bool) error {
 		if err := writeJSON("ardoq-references.json", referencePayload); err != nil {
 			return err
 		}
-		slog.Info("dry-run complete", "files", []string{"ardoq-components.json", "ardoq-references.json"})
+		slog.Info("dry-run complete")
 		return nil
 	}
 
@@ -229,8 +230,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 			})
 
 			appEnvRows = append(appEnvRows, map[string]string{
-				"app_key":          appKey,
-				"plattforminstans": plattformInstans,
+				"app_key":   appKey,
+				"plattform": plattformInstans,
 			})
 
 			for _, db := range wl.Postgres {
@@ -240,8 +241,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 					"db_key":  dbKey,
 				})
 				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":           dbKey,
-					"plattforminstans": plattformInstans,
+					"db_key":    dbKey,
+					"plattform": plattformInstans,
 				})
 				dbTechRows = append(dbTechRows, map[string]string{
 					"db_key":            dbKey,
@@ -256,8 +257,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 					"db_key":  dbKey,
 				})
 				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":           dbKey,
-					"plattforminstans": plattformInstans,
+					"db_key":    dbKey,
+					"plattform": plattformInstans,
 				})
 				dbTechRows = append(dbTechRows, map[string]string{
 					"db_key":            dbKey,
@@ -273,8 +274,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 					"db_key":  dbKey,
 				})
 				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":           dbKey,
-					"plattforminstans": plattformInstans,
+					"db_key":    dbKey,
+					"plattform": plattformInstans,
 				})
 				dbTechRows = append(dbTechRows, map[string]string{
 					"db_key":            dbKey,
