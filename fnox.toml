@@ -1,0 +1,8 @@
+default_provider = "keychain"
+
+[providers.keychain]
+type = "keychain"
+service = "ardoq"
+
+[secrets]
+ARDOQ_API_TOKEN= { provider = "keychain", value = "ARDOQ_API_TOKEN" }

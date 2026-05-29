@@ -48,3 +48,7 @@ run = "go fix ./..."
 [tasks."ci:ratchet"]
 description = "Pin GitHub Actions to commit SHAs using ratchet"
 run = "ratchet update .github/workflows/*.yaml"
+
+[tasks."local"]
+description = "Run Go locally"
+run = "fnox exec -- go run ."
