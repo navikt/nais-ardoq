@@ -232,7 +232,7 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 		req.Header.Set("Content-Type", "application/json")
 
 		if !strings.Contains(consoleURL, "localhost") {
-			token, err := os.ReadFile("NAIS_SERVICE_ACCOUNT_TOKEN_PATH")
+			token, err := os.ReadFile(os.Getenv("NAIS_SERVICE_ACCOUNT_TOKEN_PATH"))
 			if err != nil {
 				return nil, err
 			}
