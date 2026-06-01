@@ -92,6 +92,9 @@ query Teams($after: Cursor) {
               name
             }
           }
+          openSearch {
+            name
+          }
         }
       }
     }
