@@ -106,52 +106,6 @@ type gqlRequest struct {
 
 type teamsResponse struct {
 	Data struct {
-		// midlertidig
-		Team struct {
-			Slug         string `json:"slug"`
-			Purpose      string `json:"purpose"`
-			SlackChannel string `json:"slackChannel"`
-			Members      struct {
-				PageInfo struct {
-					Count int `json:"totalCount"`
-				} `json:"pageInfo"`
-			} `json:"members"`
-			Applications struct {
-				Nodes []struct {
-					Name      string `json:"name"`
-					Ingresses []struct {
-						URL string `json:"url"`
-					} `json:"ingresses"`
-					TeamEnvironment struct {
-						Environment struct {
-							Name string `json:"name"`
-						} `json:"environment"`
-					} `json:"teamEnvironment"`
-					PostgresInstances struct {
-						Nodes []struct {
-							Name  string `json:"name"`
-							Audit struct {
-								Enabled bool `json:"enabled"`
-							} `json:"audit"`
-						} `json:"nodes"`
-					} `json:"postgresInstances"`
-					SQLInstances struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"sqlInstances"`
-					ValkeyInstances struct {
-						Nodes []struct {
-							Name string `json:"name"`
-						} `json:"nodes"`
-					} `json:"valkeys"`
-					OpenSearchInstances struct {
-						Name string `json:"name"`
-					} `json:"openSearch"`
-				} `json:"nodes"`
-			} `json:"applications"`
-		} `json:"team"`
-		// midlertidig
 		Teams struct {
 			PageInfo struct {
 				HasNextPage bool   `json:"hasNextPage"`
