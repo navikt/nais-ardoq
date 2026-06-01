@@ -156,8 +156,8 @@ func buildTeamsTable(teams map[string]Team) ImportTable {
 
 // buildWorkloadTables builds table 2 (app instances) and table 3 (database instances).
 func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
-	var appRows []map[string]string
-	var dbRows []map[string]string
+	appSeen := make(map[string]map[string]string)
+	dbSeen := make(map[string]map[string]string)
 
 	for _, team := range teams {
 		for _, wl := range team.Applications {
@@ -167,49 +167,61 @@ func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
 				continue
 			}
 
-			appRows = append(appRows, map[string]string{
-				"app_key":   fmt.Sprintf("nais:%s:%s:%s", env, team.Slug, wl.Name),
-				"navn":      wl.Name,
-				"ingresser": wl.IngressesAsString(),
-			})
+			appKey := fmt.Sprintf("nais:%s:%s:%s", env, team.Slug, wl.Name)
+			if _, seen := appSeen[appKey]; !seen {
+				appSeen[appKey] = map[string]string{
+					"app_key":   appKey,
+					"navn":      wl.Name,
+					"ingresser": wl.IngressesAsString(),
+				}
+			}
 
 			for _, db := range wl.Postgres {
-				dbRows = append(dbRows, map[string]string{
-					"db_key":    fmt.Sprintf("db:%s:%s:postgres:%s", env, team.Slug, db.Name),
-					"navn":      db.Name,
-					"auditlogg": boolToString(db.Audit),
-				})
+				dbKey := fmt.Sprintf("db:%s:%s:postgres:%s", env, team.Slug, db.Name)
+				if _, seen := dbSeen[dbKey]; !seen {
+					dbSeen[dbKey] = map[string]string{
+						"db_key":    dbKey,
+						"navn":      db.Name,
+						"auditlogg": boolToString(db.Audit),
+					}
+				}
 			}
 
 			for _, v := range wl.Valkey {
-				dbRows = append(dbRows, map[string]string{
-					"db_key": fmt.Sprintf("db:%s:%s:valkey:%s", env, team.Slug, v.Name),
-					"navn":   v.Name,
-				})
+				dbKey := fmt.Sprintf("db:%s:%s:valkey:%s", env, team.Slug, v.Name)
+				if _, seen := dbSeen[dbKey]; !seen {
+					dbSeen[dbKey] = map[string]string{
+						"db_key": dbKey,
+						"navn":   v.Name,
+					}
+				}
 			}
 
 			o := wl.OpenSearch
 			if o != nil {
-				dbRows = append(dbRows, map[string]string{
-					"db_key": fmt.Sprintf("db:%s:%s:opensearch:%s", env, team.Slug, o.Name),
-					"navn":   o.Name,
-				})
+				dbKey := fmt.Sprintf("db:%s:%s:opensearch:%s", env, team.Slug, o.Name)
+				if _, seen := dbSeen[dbKey]; !seen {
+					dbSeen[dbKey] = map[string]string{
+						"db_key": dbKey,
+						"navn":   o.Name,
+					}
+				}
 			}
 		}
 	}
 
-	return ImportTable{ID: "2", Rows: appRows},
-		ImportTable{ID: "3", Rows: dbRows}
+	return ImportTable{ID: "2", Rows: flattenRows(appSeen)},
+		ImportTable{ID: "3", Rows: flattenRows(dbSeen)}
 }
 
 // buildReferenceTables builds reference tables 4–8:
 // 4: team→app, 5: app→database, 6: app→environment, 7: database→environment, 8: database→technology
 func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, ImportTable, ImportTable, ImportTable) {
-	var teamAppRows []map[string]string
-	var appDbRows []map[string]string
-	var appEnvRows []map[string]string
-	var dbEnvRows []map[string]string
-	var dbTechRows []map[string]string
+	teamAppSeen := make(map[string]map[string]string)
+	appDbSeen := make(map[string]map[string]string)
+	appEnvSeen := make(map[string]map[string]string)
+	dbEnvSeen := make(map[string]map[string]string)
+	dbTechSeen := make(map[string]map[string]string)
 
 	for _, team := range teams {
 		for _, wl := range team.Applications {
@@ -224,72 +236,107 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 
 			appKey := fmt.Sprintf("nais:%s:%s:%s", naisEnvToCluster(wl.Env), team.Slug, wl.Name)
 
-			teamAppRows = append(teamAppRows, map[string]string{
-				"team":    team.Slug,
-				"app_key": appKey,
-			})
+			teamAppKey := team.Slug + "|" + appKey
+			if _, seen := teamAppSeen[teamAppKey]; !seen {
+				teamAppSeen[teamAppKey] = map[string]string{
+					"team":    team.Slug,
+					"app_key": appKey,
+				}
+			}
 
-			appEnvRows = append(appEnvRows, map[string]string{
-				"app_key":   appKey,
-				"plattform": plattformInstans,
-			})
+			if _, seen := appEnvSeen[appKey]; !seen {
+				appEnvSeen[appKey] = map[string]string{
+					"app_key":   appKey,
+					"plattform": plattformInstans,
+				}
+			}
 
 			for _, db := range wl.Postgres {
 				dbKey := fmt.Sprintf("db:%s:%s:postgres:%s", naisEnvToCluster(wl.Env), team.Slug, db.Name)
-				appDbRows = append(appDbRows, map[string]string{
-					"app_key": appKey,
-					"db_key":  dbKey,
-				})
-				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":    dbKey,
-					"plattform": plattformInstans,
-				})
-				dbTechRows = append(dbTechRows, map[string]string{
-					"db_key":            dbKey,
-					"databaseteknologi": "postgres",
-				})
+				appDbKey := appKey + "|" + dbKey
+				if _, seen := appDbSeen[appDbKey]; !seen {
+					appDbSeen[appDbKey] = map[string]string{
+						"app_key": appKey,
+						"db_key":  dbKey,
+					}
+				}
+				if _, seen := dbEnvSeen[dbKey]; !seen {
+					dbEnvSeen[dbKey] = map[string]string{
+						"db_key":    dbKey,
+						"plattform": plattformInstans,
+					}
+				}
+				if _, seen := dbTechSeen[dbKey]; !seen {
+					dbTechSeen[dbKey] = map[string]string{
+						"db_key":            dbKey,
+						"databaseteknologi": "postgres",
+					}
+				}
 			}
 
 			for _, v := range wl.Valkey {
 				dbKey := fmt.Sprintf("db:%s:%s:valkey:%s", naisEnvToCluster(wl.Env), team.Slug, v.Name)
-				appDbRows = append(appDbRows, map[string]string{
-					"app_key": appKey,
-					"db_key":  dbKey,
-				})
-				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":    dbKey,
-					"plattform": plattformInstans,
-				})
-				dbTechRows = append(dbTechRows, map[string]string{
-					"db_key":            dbKey,
-					"databaseteknologi": "valkey",
-				})
+				appDbKey := appKey + "|" + dbKey
+				if _, seen := appDbSeen[appDbKey]; !seen {
+					appDbSeen[appDbKey] = map[string]string{
+						"app_key": appKey,
+						"db_key":  dbKey,
+					}
+				}
+				if _, seen := dbEnvSeen[dbKey]; !seen {
+					dbEnvSeen[dbKey] = map[string]string{
+						"db_key":    dbKey,
+						"plattform": plattformInstans,
+					}
+				}
+				if _, seen := dbTechSeen[dbKey]; !seen {
+					dbTechSeen[dbKey] = map[string]string{
+						"db_key":            dbKey,
+						"databaseteknologi": "valkey",
+					}
+				}
 			}
 
 			o := wl.OpenSearch
 			if o != nil {
 				dbKey := fmt.Sprintf("db:%s:%s:opensearch:%s", naisEnvToCluster(wl.Env), team.Slug, o.Name)
-				appDbRows = append(appDbRows, map[string]string{
-					"app_key": appKey,
-					"db_key":  dbKey,
-				})
-				dbEnvRows = append(dbEnvRows, map[string]string{
-					"db_key":    dbKey,
-					"plattform": plattformInstans,
-				})
-				dbTechRows = append(dbTechRows, map[string]string{
-					"db_key":            dbKey,
-					"databaseteknologi": "opensearch",
-				})
+				appDbKey := appKey + "|" + dbKey
+				if _, seen := appDbSeen[appDbKey]; !seen {
+					appDbSeen[appDbKey] = map[string]string{
+						"app_key": appKey,
+						"db_key":  dbKey,
+					}
+				}
+				if _, seen := dbEnvSeen[dbKey]; !seen {
+					dbEnvSeen[dbKey] = map[string]string{
+						"db_key":    dbKey,
+						"plattform": plattformInstans,
+					}
+				}
+				if _, seen := dbTechSeen[dbKey]; !seen {
+					dbTechSeen[dbKey] = map[string]string{
+						"db_key":            dbKey,
+						"databaseteknologi": "opensearch",
+					}
+				}
 			}
 		}
 	}
 
-	return ImportTable{ID: "4", Rows: teamAppRows},
-		ImportTable{ID: "5", Rows: appDbRows},
-		ImportTable{ID: "6", Rows: appEnvRows},
-		ImportTable{ID: "7", Rows: dbEnvRows},
-		ImportTable{ID: "8", Rows: dbTechRows}
+	return ImportTable{ID: "4", Rows: flattenRows(teamAppSeen)},
+		ImportTable{ID: "5", Rows: flattenRows(appDbSeen)},
+		ImportTable{ID: "6", Rows: flattenRows(appEnvSeen)},
+		ImportTable{ID: "7", Rows: flattenRows(dbEnvSeen)},
+		ImportTable{ID: "8", Rows: flattenRows(dbTechSeen)}
+}
+
+// flattenRows converts a deduplication map (keyed by some unique key) to a slice of rows.
+func flattenRows(m map[string]map[string]string) []map[string]string {
+	rows := make([]map[string]string, 0, len(m))
+	for _, v := range m {
+		rows = append(rows, v)
+	}
+	return rows
 }
 
 func boolToString(b bool) string {
