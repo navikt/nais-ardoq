@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ query Teams($after: Cursor) {
               name
             }
           }
-          valkey {
+          valkeys {
             nodes {
               name
             }
@@ -265,7 +266,7 @@ func fetchTeams(consoleURL string) (map[string]Team, error) {
 
 	for {
 		body, err := json.Marshal(gqlRequest{
-			Query:     theGTeamQuery, // teamsQuery,
+			Query:     teamsQuery,
 			Variables: map[string]any{"after": after},
 		})
 		if err != nil {
@@ -301,67 +302,69 @@ func fetchTeams(consoleURL string) (map[string]Team, error) {
 			for i, e := range result.Errors {
 				msgs[i] = e.Message
 			}
-			return nil, fmt.Errorf("GraphQL errors: %s", strings.Join(msgs, "; "))
+
+			// return nil, fmt.Errorf("GraphQL errors (after: %s): %s", after, strings.Join(msgs, "; "))
+			slog.Info(fmt.Sprintf("GraphQL errors (after: %s): %s", after, strings.Join(msgs, "; ")))
 		}
 
-		// for _, teamNode := range result.Data.Teams.Nodes {
-		teamNode := result.Data.Team
-		team := teams[teamNode.Slug]
-		if team.Slug == "" {
-			team = Team{
-				Slug:         teamNode.Slug,
-				Purpose:      teamNode.Purpose,
-				SlackChannel: teamNode.SlackChannel,
-				Members:      teamNode.Members.PageInfo.Count,
-				Applications: []Workload{},
-			}
-		}
-
-		for _, wlNode := range teamNode.Applications.Nodes {
-			postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.PostgresInstances.Nodes))
-			for _, inst := range wlNode.SQLInstances.Nodes {
-				postgres = append(postgres, Postgres{
-					Name:  inst.Name,
-					Audit: false,
-				})
-			}
-
-			for _, inst := range wlNode.PostgresInstances.Nodes {
-				postgres = append(postgres, Postgres{
-					Name:  inst.Name,
-					Audit: inst.Audit.Enabled,
-				})
-			}
-
-			valkey := make([]Valkey, 0, len(wlNode.ValkeyInstances.Nodes))
-			for _, inst := range wlNode.ValkeyInstances.Nodes {
-				valkey = append(valkey, Valkey{Name: inst.Name})
-			}
-
-			var openSearch *OpenSearch
-			if wlNode.OpenSearchInstances.Name != "" {
-				openSearch = &OpenSearch{
-					Name: wlNode.OpenSearchInstances.Name,
+		for _, teamNode := range result.Data.Teams.Nodes {
+			// teamNode := result.Data.Team
+			team := teams[teamNode.Slug]
+			if team.Slug == "" {
+				team = Team{
+					Slug:         teamNode.Slug,
+					Purpose:      teamNode.Purpose,
+					SlackChannel: teamNode.SlackChannel,
+					Members:      teamNode.Members.PageInfo.Count,
+					Applications: []Workload{},
 				}
 			}
 
-			ingresses := []string{}
-			for _, ingress := range wlNode.Ingresses {
-				ingresses = append(ingresses, ingress.URL)
+			for _, wlNode := range teamNode.Applications.Nodes {
+				postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.PostgresInstances.Nodes))
+				for _, inst := range wlNode.SQLInstances.Nodes {
+					postgres = append(postgres, Postgres{
+						Name:  inst.Name,
+						Audit: false,
+					})
+				}
+
+				for _, inst := range wlNode.PostgresInstances.Nodes {
+					postgres = append(postgres, Postgres{
+						Name:  inst.Name,
+						Audit: inst.Audit.Enabled,
+					})
+				}
+
+				valkey := make([]Valkey, 0, len(wlNode.ValkeyInstances.Nodes))
+				for _, inst := range wlNode.ValkeyInstances.Nodes {
+					valkey = append(valkey, Valkey{Name: inst.Name})
+				}
+
+				var openSearch *OpenSearch
+				if wlNode.OpenSearchInstances.Name != "" {
+					openSearch = &OpenSearch{
+						Name: wlNode.OpenSearchInstances.Name,
+					}
+				}
+
+				ingresses := []string{}
+				for _, ingress := range wlNode.Ingresses {
+					ingresses = append(ingresses, ingress.URL)
+				}
+
+				team.Applications = append(team.Applications, Workload{
+					Name:       wlNode.Name,
+					Env:        wlNode.TeamEnvironment.Environment.Name,
+					Ingresses:  ingresses,
+					Postgres:   postgres,
+					Valkey:     valkey,
+					OpenSearch: openSearch,
+				})
 			}
 
-			team.Applications = append(team.Applications, Workload{
-				Name:       wlNode.Name,
-				Env:        wlNode.TeamEnvironment.Environment.Name,
-				Ingresses:  ingresses,
-				Postgres:   postgres,
-				Valkey:     valkey,
-				OpenSearch: openSearch,
-			})
+			teams[team.Slug] = team
 		}
-
-		teams[team.Slug] = team
-		// }
 
 		if !result.Data.Teams.PageInfo.HasNextPage {
 			break
