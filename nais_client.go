@@ -101,55 +101,6 @@ query Teams($after: Cursor) {
 }
 `
 
-const theGTeamQuery = `
-query Team {
-  team(slug: "the-g-team") {
-    slug
-    purpose
-    slackChannel
-    members {
-      pageInfo {
-        totalCount
-      }
-    }
-    applications {
-      nodes {
-        name
-        ingresses {
-          url
-        }
-        teamEnvironment {
-          environment {
-            name
-          }
-        }
-        postgresInstances {
-          nodes {
-            name
-            audit {
-              enabled
-            }
-          }
-        }
-        sqlInstances {
-          nodes {
-            name
-          }
-        }
-        valkeys {
-          nodes {
-            name
-          }
-        }
-        openSearch {
-          name
-        }
-      }
-    }
-  }
-}
-`
-
 type gqlRequest struct {
 	Query     string         `json:"query"`
 	Variables map[string]any `json:"variables"`
