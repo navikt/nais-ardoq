@@ -15,7 +15,7 @@ func main() {
 	ardoqToken := os.Getenv("ARDOQ_API_TOKEN")
 
 	slog.Info("fetching teams from Nais Console", "url", naisURL)
-	teams, err := fetchTeams(naisURL)
+	teams, err := fetchTeamsFromNaisAPI(naisURL)
 	if err != nil {
 		slog.Error("failed to fetch teams", "error", err)
 		os.Exit(1)

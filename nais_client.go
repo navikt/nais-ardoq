@@ -211,7 +211,7 @@ type teamsResponse struct {
 	} `json:"errors"`
 }
 
-func fetchTeams(consoleURL string) (map[string]Team, error) {
+func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	teams := make(map[string]Team)
 	after := ""
@@ -264,12 +264,10 @@ func fetchTeams(consoleURL string) (map[string]Team, error) {
 				msgs[i] = e.Message
 			}
 
-			// return nil, fmt.Errorf("GraphQL errors (after: %s): %s", after, strings.Join(msgs, "; "))
-			slog.Info(fmt.Sprintf("GraphQL errors (after: %s): %s", after, strings.Join(msgs, "; ")))
+			slog.Warn(fmt.Sprintf("GraphQL errors (after: %s): %s", after, strings.Join(msgs, "; ")))
 		}
 
 		for _, teamNode := range result.Data.Teams.Nodes {
-			// teamNode := result.Data.Team
 			team := teams[teamNode.Slug]
 			if team.Slug == "" {
 				team = Team{
