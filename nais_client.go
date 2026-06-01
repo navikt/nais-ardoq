@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -229,6 +230,15 @@ func fetchTeams(consoleURL string) (map[string]Team, error) {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
+
+		if !strings.Contains(consoleURL, "localhost") {
+			token, err := os.ReadFile("NAIS_SERVICE_ACCOUNT_TOKEN_PATH")
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
