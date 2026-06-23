@@ -210,6 +210,17 @@ func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
 		}
 	}
 
+	lastSeen := time.Now().Format(time.DateOnly)
+	for _, app := range appSeen {
+		app["sist_sett_i_synk"] = lastSeen
+		app["lifecycle_phase"] = "Live"
+	}
+
+	for _, app := range dbSeen {
+		app["sist_sett_i_synk"] = lastSeen
+		app["lifecycle_phase"] = "Live"
+	}
+
 	return ImportTable{ID: "2", Rows: flattenRows(appSeen)},
 		ImportTable{ID: "3", Rows: flattenRows(dbSeen)}
 }
