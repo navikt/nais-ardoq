@@ -20,7 +20,7 @@ jobs:
         id: changed-files
         uses: "nais/what-changed@main"
         with:
-          files: .nais/job.yaml
+          files: .nais/job.yaml,.nais/alert.yaml
       - name: Build and push image and SBOM to OCI registry
         if: steps.changed-files.outputs.changed != 'only-inputs'
         uses: nais/docker-build-push@v0
@@ -31,5 +31,5 @@ jobs:
         uses: nais/deploy/actions/deploy@v2
         env:
           CLUSTER: prod-gcp
-          RESOURCE: .nais/job.yaml
+          RESOURCE: .nais/job.yaml,.nais/alert.yaml
           WORKLOAD_IMAGE: ${{ steps.docker-build-push.outputs.image }}

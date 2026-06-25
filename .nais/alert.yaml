@@ -1,0 +1,34 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    team: ardoq
+  name: ardoq-alerts
+  namespace: ardoq
+spec:
+  groups:
+    - name: ardoq-sync-alerts
+      rules:
+        - alert: ArdoqErrorLogs
+          expr: sum(loki:service:loglevel:count1m{service_namespace="ardoq", service_name="ardoq", detected_level="error"}) > 1
+          for: 90m
+          annotations:
+            summary: "Ardoq job is logging more than one error"
+            action: "Check logs with `kubectl logs -n ardoq -l app=ardoq --tail=100`"
+            message: "Ardoq sync job is logging errors"
+            dashboard_url: "https://grafana.nav.cloud.nais.io/goto/efq6im5i3mewwf"
+          labels:
+            severity: warning
+            namespace: ardoq
+
+        - alert: ArdoqSyncMissing
+          expr: kube_job_failed{namespace="ardoq", job_name=~"ardoq-.*"}
+          for: 90m
+          annotations:
+            summary: "Ardoq sync job has a failed job"
+            action: "Check if the CronJob is running: `kubectl get naisjob ardoq -n ardoq` and `kubectl get pods -n ardoq`."
+            message: "The last jobs have failed"
+            dashboard_url: "https://grafana.nav.cloud.nais.io/goto/efq6im5i3mewwf"
+          labels:
+            severity: warning
+            namespace: ardoq
