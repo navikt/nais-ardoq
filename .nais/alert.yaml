@@ -22,7 +22,7 @@ spec:
             namespace: ardoq
 
         - alert: ArdoqSyncMissing
-          expr: kube_job_failed{namespace="ardoq", job_name=~"ardoq-.*"}
+          expr: kube_cronjob_status_last_schedule_time{k8s_cluster_name="prod",namespace="ardoq"} > kube_cronjob_status_last_successful_time{k8s_cluster_name="prod",namespace="ardoq"}
           for: 90m
           annotations:
             summary: "Ardoq sync job has a failed job"
