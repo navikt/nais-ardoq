@@ -45,7 +45,7 @@ func newArdoqClient(host, token string) *ardoqClient {
 	return &ardoqClient{
 		host:   strings.TrimRight(host, "/"),
 		token:  token,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: 90 * time.Second},
 	}
 }
 
@@ -82,6 +82,25 @@ func (c *ardoqClient) do(method, url string, body any) ([]byte, error) {
 	return respBody, nil
 }
 
+func (c *ardoqClient) doWithRetry(method, url string, body any) ([]byte, error) {
+	const maxAttempts = 3
+	const retryDelay = 5 * time.Second
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := c.do(method, url, body)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if attempt < maxAttempts {
+			slog.Warn("ardoq request failed, retrying", "attempt", attempt, "of", maxAttempts, "error", err)
+			time.Sleep(retryDelay)
+		}
+	}
+	return nil, lastErr
+}
+
 // toArdoq builds the Import API payloads and either writes them to disk (dry-run)
 // or sends them to Ardoq via the Import API.
 func toArdoq(teams map[string]Team, host, token string, dryRun bool) error {
@@ -115,13 +134,13 @@ func toArdoq(teams map[string]Team, host, token string, dryRun bool) error {
 	url := c.host + importEndpoint
 
 	slog.Info("importing components", "teams", len(table1.Rows), "apps", len(table2.Rows), "databases", len(table3.Rows))
-	if _, err := c.do(http.MethodPost, url, componentPayload); err != nil {
+	if _, err := c.doWithRetry(http.MethodPost, url, componentPayload); err != nil {
 		return fmt.Errorf("import components: %w", err)
 	}
 	slog.Info("components imported")
 
 	slog.Info("importing references", "team_app_refs", len(table4.Rows), "app_db_refs", len(table5.Rows))
-	if _, err := c.do(http.MethodPost, url, referencePayload); err != nil {
+	if _, err := c.doWithRetry(http.MethodPost, url, referencePayload); err != nil {
 		return fmt.Errorf("import references: %w", err)
 	}
 	slog.Info("references imported")
