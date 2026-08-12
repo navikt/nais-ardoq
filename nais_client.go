@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const ARDOQ_LABEL_SYSTEM_ID = "systemkatalog.nav.no/system"
+
 type Postgres struct {
 	Name  string
 	Audit bool
@@ -30,6 +32,7 @@ type Workload struct { // TODO: Dette er en applications, så ingen støtte for 
 	Name       string
 	Env        string
 	Ingresses  []string
+	SystemID   string
 	Postgres   []Postgres
 	Valkey     []Valkey
 	OpenSearch *OpenSearch
@@ -66,6 +69,10 @@ query Teams($after: Cursor) {
       applications(first: 500) {
         nodes {
           name
+          labels {
+            key
+            value
+          }
           ingresses {
             url
           }
@@ -125,7 +132,11 @@ type teamsResponse struct {
 				} `json:"members"`
 				Applications struct {
 					Nodes []struct {
-						Name      string `json:"name"`
+						Name   string `json:"name"`
+						Labels []struct {
+							Key   string `json:"key"`
+							Value string `json:"value"`
+						} `json:"labels"`
 						Ingresses []struct {
 							URL string `json:"url"`
 						} `json:"ingresses"`
@@ -266,10 +277,20 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 					ingresses = append(ingresses, ingress.URL)
 				}
 
+				var systemID string
+				for _, label := range wlNode.Labels {
+					if label.Key == ARDOQ_LABEL_SYSTEM_ID {
+						systemID = label.Value
+						fmt.Printf("%s/%s, ID: %s\n", team.Slug, wlNode.Name, label.Value)
+						break
+					}
+				}
+
 				team.Applications = append(team.Applications, Workload{
 					Name:       wlNode.Name,
 					Env:        wlNode.TeamEnvironment.Environment.Name,
 					Ingresses:  ingresses,
+					SystemID:   systemID,
 					Postgres:   postgres,
 					Valkey:     valkey,
 					OpenSearch: openSearch,

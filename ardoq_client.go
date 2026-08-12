@@ -192,7 +192,7 @@ func buildWorkloadTables(teams map[string]Team) (ImportTable, ImportTable) {
 					"app_key":   appKey,
 					"navn":      wl.Name,
 					"ingresser": wl.IngressesAsString(),
-					"system_id": "",
+					"system_id": wl.SystemID,
 				}
 			}
 
