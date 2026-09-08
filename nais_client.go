@@ -180,6 +180,7 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	teams := make(map[string]Team)
 	after := ""
+	countSystemIDLabels := 0
 
 	for {
 		body, err := json.Marshal(gqlRequest{
@@ -281,7 +282,7 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 				for _, label := range wlNode.Labels {
 					if label.Key == ARDOQ_LABEL_SYSTEM_ID {
 						systemID = label.Value
-						fmt.Printf("%s/%s, ID: %s\n", team.Slug, wlNode.Name, label.Value)
+						countSystemIDLabels++
 						break
 					}
 				}
@@ -305,6 +306,8 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 		}
 		after = result.Data.Teams.PageInfo.EndCursor
 	}
+
+	slog.Info(fmt.Sprintf("There are %d resources using %s\n", countSystemIDLabels, ARDOQ_LABEL_SYSTEM_ID))
 
 	return teams, nil
 }
