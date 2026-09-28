@@ -28,7 +28,7 @@ jobs:
         with:
           team: ardoq
       - name: Deploy to Nais
-        uses: nais/deploy/actions/deploy@v2
+        uses: nais/deploy/actions/deploy@v3
         env:
           CLUSTER: prod-gcp
           RESOURCE: .nais/job.yaml,.nais/alert.yaml
