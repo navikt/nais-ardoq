@@ -86,6 +86,7 @@ query Teams($after: Cursor) {
               postgres {
                 name
               }
+            }
           }
           sqlInstances {
             nodes {
