@@ -83,11 +83,9 @@ query Teams($after: Cursor) {
           }
           postgreses {
             nodes {
-              name
-              audit {
-                enabled
+              postgres {
+                name
               }
-            }
           }
           sqlInstances {
             nodes {
@@ -145,14 +143,13 @@ type teamsResponse struct {
 								Name string `json:"name"`
 							} `json:"environment"`
 						} `json:"teamEnvironment"`
-						PostgresInstances struct {
+						Postgreses struct {
 							Nodes []struct {
-								Name  string `json:"name"`
-								Audit struct {
-									Enabled bool `json:"enabled"`
-								} `json:"audit"`
+								Postgres struct {
+									Name string `json:"name"`
+								} `json:"postgres"`
 							} `json:"nodes"`
-						} `json:"postgresInstances"`
+						} `json:"postgreses"`
 						SQLInstances struct {
 							Nodes []struct {
 								Name string `json:"name"`
@@ -246,7 +243,7 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 			}
 
 			for _, wlNode := range teamNode.Applications.Nodes {
-				postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.PostgresInstances.Nodes))
+				postgres := make([]Postgres, 0, len(wlNode.SQLInstances.Nodes)+len(wlNode.Postgreses.Nodes))
 				for _, inst := range wlNode.SQLInstances.Nodes {
 					postgres = append(postgres, Postgres{
 						Name:  inst.Name,
@@ -254,10 +251,10 @@ func fetchTeamsFromNaisAPI(consoleURL string) (map[string]Team, error) {
 					})
 				}
 
-				for _, inst := range wlNode.PostgresInstances.Nodes {
+				for _, inst := range wlNode.Postgreses.Nodes {
 					postgres = append(postgres, Postgres{
-						Name:  inst.Name,
-						Audit: inst.Audit.Enabled,
+						Name:  inst.Postgres.Name,
+						Audit: false,
 					})
 				}
 
