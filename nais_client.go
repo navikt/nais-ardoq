@@ -81,7 +81,7 @@ query Teams($after: Cursor) {
               name
             }
           }
-          postgresInstances {
+          postgreses {
             nodes {
               name
               audit {
