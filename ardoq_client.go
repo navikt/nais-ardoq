@@ -277,8 +277,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 
 			if _, seen := appEnvSeen[appKey]; !seen {
 				appEnvSeen[appKey] = map[string]string{
-					"app_key":   appKey,
-					"plattform": plattformInstans,
+					"app_key":          appKey,
+					"plattforminstans": plattformInstans,
 				}
 			}
 
@@ -293,8 +293,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 				}
 				if _, seen := dbEnvSeen[dbKey]; !seen {
 					dbEnvSeen[dbKey] = map[string]string{
-						"db_key":    dbKey,
-						"plattform": plattformInstans,
+						"db_key":           dbKey,
+						"plattforminstans": plattformInstans,
 					}
 				}
 				if _, seen := dbTechSeen[dbKey]; !seen {
@@ -316,8 +316,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 				}
 				if _, seen := dbEnvSeen[dbKey]; !seen {
 					dbEnvSeen[dbKey] = map[string]string{
-						"db_key":    dbKey,
-						"plattform": plattformInstans,
+						"db_key":           dbKey,
+						"plattforminstans": plattformInstans,
 					}
 				}
 				if _, seen := dbTechSeen[dbKey]; !seen {
@@ -340,8 +340,8 @@ func buildReferenceTables(teams map[string]Team) (ImportTable, ImportTable, Impo
 				}
 				if _, seen := dbEnvSeen[dbKey]; !seen {
 					dbEnvSeen[dbKey] = map[string]string{
-						"db_key":    dbKey,
-						"plattform": plattformInstans,
+						"db_key":           dbKey,
+						"plattforminstans": plattformInstans,
 					}
 				}
 				if _, seen := dbTechSeen[dbKey]; !seen {
