@@ -23,7 +23,7 @@ jobs:
           files: .nais/job.yaml,.nais/alert.yaml
       - name: Build and push image and SBOM to OCI registry
         if: steps.changed-files.outputs.changed != 'only-inputs'
-        uses: nais/docker-build-push@v0
+        uses: nais/docker-build-push@v1
         id: docker-build-push
         with:
           team: ardoq
